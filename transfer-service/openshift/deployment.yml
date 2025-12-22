@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transfer-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: transfer-service }
+  template:
+    metadata:
+      labels: { app: transfer-service }
+    spec:
+      containers:
+        - name: transfer-service
+          image: IMAGE_TRANSFER
+          ports:
+            - containerPort: 8082
+          env:
+            - name: KEYCLOAK_ISSUER_URI
+              value: "http://keycloak:8080/realms/bank-realm"
+            - name: DB_URL
+              value: "jdbc:postgresql://transfer-db:5432/transferdb"
+            - name: DB_USER
+              value: "transfer"
+            - name: DB_PASS
+              value: "transfer"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9092"
+            - name: ACCOUNT_URL
+              value: "http://account-service:8081"

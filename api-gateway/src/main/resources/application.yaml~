@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: api-gateway
+  security:
+    oauth2:
+      resource-server:
+        jwt:
+          issuer-uri: http://keycloak:8080/realms/bank-realm
+  cloud:
+    gateway:
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowed-origins: "http://localhost:3000"
+            allowed-methods: [ GET,POST,PUT,DELETE,PATCH ]
+            allowed-headers: "*"
+      routes:
+        - id: transfer
+          uri: http://transfer-service:8082
+          predicates:
+            - Path=/api/transfers/**
+        - id: account
+          uri: http://account-service:8081
+          predicates:
+            - Path=/api/accounts/**

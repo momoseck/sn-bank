@@ -1,0 +1,57 @@
+stages: [test, build, docker, deploy]
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+  DOCKER_TLS_CERTDIR: ""
+
+cache:
+  paths:
+    - .m2/repository
+
+test:
+  stage: test
+  image: maven:3.9-eclipse-temurin-17
+  script:
+    - mvn -q test
+
+build:
+  stage: build
+  image: maven:3.9-eclipse-temurin-17
+  script:
+    - mvn -q -DskipTests package
+  artifacts:
+    paths:
+      - "**/target/*.jar"
+    expire_in: 1 day
+
+docker:
+  stage: docker
+  image: docker:27
+  services: [docker:27-dind]
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker build -t "$CI_REGISTRY_IMAGE/api-gateway:$CI_COMMIT_SHA" api-gateway
+    - docker build -t "$CI_REGISTRY_IMAGE/account-service:$CI_COMMIT_SHA" account-service
+    - docker build -t "$CI_REGISTRY_IMAGE/transfer-service:$CI_COMMIT_SHA" transfer-service
+    - docker build -t "$CI_REGISTRY_IMAGE/notification-service:$CI_COMMIT_SHA" notification-service
+    - docker push "$CI_REGISTRY_IMAGE/api-gateway:$CI_COMMIT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE/account-service:$CI_COMMIT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE/transfer-service:$CI_COMMIT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE/notification-service:$CI_COMMIT_SHA"
+
+deploy:
+  stage: deploy
+  image: quay.io/openshift/origin-cli:4.15
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  script:
+    - oc login "$OPENSHIFT_URL" --token="$OPENSHIFT_TOKEN" --insecure-skip-tls-verify=true
+    - oc project "$OPENSHIFT_PROJECT"
+    - sed -i "s|IMAGE_GATEWAY|$CI_REGISTRY_IMAGE/api-gateway:$CI_COMMIT_SHA|g" api-gateway/openshift/deployment.yml
+    - sed -i "s|IMAGE_ACCOUNT|$CI_REGISTRY_IMAGE/account-service:$CI_COMMIT_SHA|g" account-service/openshift/deployment.yml
+    - sed -i "s|IMAGE_TRANSFER|$CI_REGISTRY_IMAGE/transfer-service:$CI_COMMIT_SHA|g" transfer-service/openshift/deployment.yml
+    - sed -i "s|IMAGE_NOTIFICATION|$CI_REGISTRY_IMAGE/notification-service:$CI_COMMIT_SHA|g" notification-service/openshift/deployment.yml
+    - oc apply -f api-gateway/openshift/
+    - oc apply -f account-service/openshift/
+    - oc apply -f transfer-service/openshift/
+    - oc apply -f notification-service/openshift/

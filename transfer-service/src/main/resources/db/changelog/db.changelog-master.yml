@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-transfer
+      author: bank
+      changes:
+        - createTable:
+            tableName: transfer
+            columns:
+              - column: { name: id, type: BIGSERIAL, constraints: { primaryKey: true } }
+              - column: { name: transfer_id, type: VARCHAR(64), constraints: { nullable: false, unique: true } }
+              - column: { name: from_account_id, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: to_account_id, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: amount, type: DECIMAL(19,2), constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP, constraints: { nullable: false } }
+              - column: { name: initiated_by, type: VARCHAR(128), constraints: { nullable: false } }

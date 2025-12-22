@@ -1,0 +1,4 @@
+package sn.bank.transfertservice.app;
+
+public class TransferUseCase {
+}

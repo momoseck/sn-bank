@@ -1,0 +1,33 @@
+{
+  "realm": "bank-realm",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "USER" },
+      { "name": "ADMIN" }
+    ]
+  },
+  "users": [
+    {
+      "username": "user1",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "password", "temporary": false }],
+      "realmRoles": ["USER"]
+    },
+    {
+      "username": "admin1",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "password", "temporary": false }],
+      "realmRoles": ["ADMIN","USER"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "bank-client",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-account
+      author: bank
+      changes:
+        - createTable:
+            tableName: account
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints: { primaryKey: true }
+              - column:
+                  name: iban
+                  type: VARCHAR(34)
+                  constraints: { nullable: false, unique: true }
+              - column:
+                  name: balance
+                  type: DECIMAL(19,2)
+                  constraints: { nullable: false }
+
+  - changeSet:
+      id: 002-seed-accounts
+      author: bank
+      changes:
+        - insert:
+            tableName: account
+            columns:
+              - column: { name: iban, value: "MA000000000000000000000000000001" }
+              - column: { name: balance, valueNumeric: 10000.00 }
+        - insert:
+            tableName: account
+            columns:
+              - column: { name: iban, value: "MA000000000000000000000000000002" }
+              - column: { name: balance, valueNumeric: 5000.00 }

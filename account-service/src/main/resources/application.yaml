@@ -1,0 +1,32 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: account-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/accountdb}
+    username: ${DB_USER:account}
+    password: ${DB_PASS:account}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.format_sql: true
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yml
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8088/realms/bank-realm}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
