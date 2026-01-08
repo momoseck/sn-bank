@@ -1,0 +1,823 @@
+@startuml
+title MVP - ERD fusionné (Existant + Cockpit)
+
+hide circle
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+
+entity stream {
+  * id : bigint
+  --
+  nom : varchar
+}
+
+entity domaine {
+  * id : bigint
+  --
+  nom : varchar
+}
+
+entity app_user {
+  * id : bigint
+  --
+  username : varchar
+  nom : varchar
+  prenom : varchar
+  email : varchar
+  fonction : varchar
+  is_enabled : boolean
+  stream_id : bigint
+  domaine_id : bigint
+}
+
+entity realisation {
+  * id : bigint
+  --
+  nom : varchar
+  description : text
+  etat : varchar        ' NOT_STARTED, IN_PROGRESS, ON_HOLD, DONE, BLOCKED
+  health : varchar      ' GREEN, AMBER, RED
+  date_debut : date
+  date_fin_prevue : date
+  date_fin_reelle : date
+  stream_id : bigint
+  porteur_id : bigint
+}
+
+entity phase {
+  * id : bigint
+  --
+  realisation_id : bigint
+  nom : varchar
+  etat : varchar
+  progress_percent : int
+  date_debut : date
+  date_fin_prevue : date
+  date_fin_reelle : date
+  sequence_order : int
+}
+
+entity allocation {
+  * id : bigint
+  --
+  user_id : bigint
+  realisation_id : bigint
+  phase_id : bigint  ' nullable
+  role : varchar
+  allocation_percent : int
+  planned_days : decimal
+  start_date : date
+  end_date : date
+}
+
+entity capacity {
+  * id : bigint
+  --
+  user_id : bigint
+  period_month : date
+  available_days : decimal
+  comment : varchar
+}
+
+entity time_entry {
+  * id : bigint
+  --
+  user_id : bigint
+  realisation_id : bigint
+  phase_id : bigint ' nullable
+  work_date : date
+  days : decimal
+  comment : text
+}
+
+entity project_kpi_snapshot {
+  * id : bigint
+  --
+  realisation_id : bigint
+  snapshot_date : date
+  progress_percent : int
+  planned_days : decimal
+  consumed_days : decimal
+  variance_days : decimal
+  health : varchar
+}
+
+' ========== RELATIONS ==========
+stream ||--o{ app_user
+domaine ||--o{ app_user
+
+stream ||--o{ realisation
+app_user ||--o{ realisation : porteur
+
+realisation ||--o{ phase
+
+app_user ||--o{ allocation
+realisation ||--o{ allocation
+phase ||--o{ allocation
+
+app_user ||--o{ capacity
+
+app_user ||--o{ time_entry
+realisation ||--o{ time_entry
+phase ||--o{ time_entry
+
+realisation ||--o{ project_kpi_snapshot
+
+@enduml
+
+
+--------------------------------------------------------------------
+
+use case 
+
+@startuml
+title MVP - Use Cases Cockpit Projets & Ressources
+
+left to right direction
+skinparam actorStyle awesome
+skinparam packageStyle rectangle
+
+actor "Métier" as Business
+actor "Chef de projet" as PM
+actor "Manager" as Manager
+actor "Membre" as Member
+actor "Admin" as Admin
+
+rectangle "Cockpit Projets & Ressources (MVP)" {
+
+  package "Référentiel" {
+    usecase "Gérer Streams" as UC_Streams
+    usecase "Gérer Domaines" as UC_Domaines
+    usecase "Gérer Utilisateurs" as UC_Users
+  }
+
+  package "Projets" {
+    usecase "Créer / Mettre à jour\nun Projet (Réalisation)" as UC_Project
+    usecase "Consulter Portefeuille\n(filtres: état, health, stream)" as UC_Portfolio
+    usecase "Définir Phases\n(et dates, % avancement)" as UC_Phases
+    usecase "Suivre Avancement\n(projet & phases)" as UC_Progress
+  }
+
+  package "Ressources & Charge" {
+    usecase "Affecter Ressources\nà un Projet / Phase" as UC_Allocation
+    usecase "Saisir Capacité Mensuelle\n(jours disponibles)" as UC_Capacity
+    usecase "Saisir Consommation\n(Time Entry J/H)" as UC_TimeEntry
+    usecase "Visualiser Charges\n(prévu vs consommé)" as UC_Load
+  }
+
+  package "Cockpit" {
+    usecase "Cockpit Projet\n(KPI, variance, health)" as UC_CockpitProject
+    usecase "Cockpit Manager\n(qui fait quoi + surcharge)" as UC_CockpitManager
+    usecase "Générer Snapshot KPI\n(quotidien / à la demande)" as UC_KpiSnapshot
+  }
+}
+
+Admin --> UC_Streams
+Admin --> UC_Domaines
+Admin --> UC_Users
+
+PM --> UC_Project
+PM --> UC_Phases
+PM --> UC_Progress
+PM --> UC_Allocation
+PM --> UC_CockpitProject
+
+Manager --> UC_Portfolio
+Manager --> UC_Load
+Manager --> UC_CockpitManager
+Manager --> UC_Capacity
+
+Member --> UC_TimeEntry
+Member --> UC_Progress
+
+Business --> UC_Portfolio
+Business --> UC_CockpitProject
+
+UC_CockpitProject --> UC_KpiSnapshot : <<include>>
+UC_CockpitManager --> UC_KpiSnapshot : <<include>>
+UC_Load --> UC_TimeEntry : <<include>>
+
+@enduml
+
+
+-------------------------------------- entities-----------------
+
+@Entity
+@Table(name = "stream")
+@Getter @Setter
+public class Stream {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @Column(nullable = false, length = 150)
+  private String nom;
+}
+
+
+_________
+
+@Entity
+@Table(name = "domaine")
+@Getter @Setter
+public class Domaine {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @Column(nullable = false, length = 150)
+  private String nom;
+}
+
+_________
+
+@Entity
+@Table(name = "app_user")
+@Getter @Setter
+public class AppUser {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @Column(nullable = false, unique = true, length = 120)
+  private String username;
+
+  private String nom;
+  private String prenom;
+  private String email;
+  private String fonction;
+
+  @Column(nullable = false)
+  private boolean isEnabled = true;
+
+  @ManyToOne
+  @JoinColumn(name = "stream_id")
+  private Stream stream;
+
+  @ManyToOne
+  @JoinColumn(name = "domaine_id")
+  private Domaine domaine;
+}
+
+__________
+
+@Entity
+@Table(name = "realisation")
+@Getter @Setter
+public class Realisation {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @Column(nullable = false, length = 200)
+  private String nom;
+
+  @Column(columnDefinition = "text")
+  private String description;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false)
+  private ProjectEtat etat = ProjectEtat.NOT_STARTED;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false)
+  private ProjectHealth health = ProjectHealth.GREEN;
+
+  private LocalDate dateDebut;
+  private LocalDate dateFinPrevue;
+  private LocalDate dateFinReelle;
+
+  @ManyToOne
+  @JoinColumn(name = "stream_id")
+  private Stream stream;
+
+  @ManyToOne
+  @JoinColumn(name = "porteur_id")
+  private AppUser porteur;
+}
+
+_________
+
+public enum ProjectEtat {
+  NOT_STARTED, IN_PROGRESS, ON_HOLD, DONE, BLOCKED
+}
+
+public enum ProjectHealth {
+  GREEN, AMBER, RED
+}
+
+___________
+
+@Entity
+@Table(name = "phase")
+@Getter @Setter
+public class Phase {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @ManyToOne(optional = false)
+  @JoinColumn(name = "realisation_id")
+  private Realisation realisation;
+
+  @Column(nullable = false)
+  private String nom;
+
+  @Enumerated(EnumType.STRING)
+  private ProjectEtat etat = ProjectEtat.NOT_STARTED;
+
+  @Column(nullable = false)
+  private int progressPercent = 0;
+
+  private LocalDate dateDebut;
+  private LocalDate dateFinPrevue;
+  private LocalDate dateFinReelle;
+
+  private int sequenceOrder;
+}
+
+__________
+
+
+@Entity
+@Table(
+  name = "allocation",
+  uniqueConstraints = @UniqueConstraint(
+    columnNames = {"user_id", "realisation_id", "phase_id"}
+  )
+)
+@Getter @Setter
+public class Allocation {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @ManyToOne(optional = false)
+  @JoinColumn(name = "user_id")
+  private AppUser user;
+
+  @ManyToOne(optional = false)
+  @JoinColumn(name = "realisation_id")
+  private Realisation realisation;
+
+  @ManyToOne
+  @JoinColumn(name = "phase_id")
+  private Phase phase; // nullable
+
+  private String role;
+
+  @Column(nullable = false)
+  private int allocationPercent = 100;
+
+  @Column(nullable = false, precision = 10, scale = 2)
+  private BigDecimal plannedDays = BigDecimal.ZERO;
+
+  private LocalDate startDate;
+  private LocalDate endDate;
+}
+
+
+______
+
+@Entity
+@Table(
+  name = "capacity",
+  uniqueConstraints = @UniqueConstraint(
+    columnNames = {"user_id", "period_month"}
+  )
+)
+@Getter @Setter
+public class Capacity {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @ManyToOne(optional = false)
+  @JoinColumn(name = "user_id")
+  private AppUser user;
+
+  @Column(nullable = false)
+  private LocalDate periodMonth; // ex: 2026-01-01
+
+  @Column(nullable = false, precision = 10, scale = 2)
+  private BigDecimal availableDays = BigDecimal.ZERO;
+
+  private String comment;
+}
+
+____
+
+@Entity
+@Table(name = "time_entry")
+@Getter @Setter
+public class TimeEntry {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @ManyToOne(optional = false)
+  @JoinColumn(name = "user_id")
+  private AppUser user;
+
+  @ManyToOne(optional = false)
+  @JoinColumn(name = "realisation_id")
+  private Realisation realisation;
+
+  @ManyToOne
+  @JoinColumn(name = "phase_id")
+  private Phase phase; // nullable
+
+  @Column(nullable = false)
+  private LocalDate workDate;
+
+  @Column(nullable = false, precision = 10, scale = 2)
+  private BigDecimal days;
+
+  @Column(columnDefinition = "text")
+  private String comment;
+}
+
+_____
+
+@Entity
+@Table(
+  name = "project_kpi_snapshot",
+  uniqueConstraints = @UniqueConstraint(
+    columnNames = {"realisation_id", "snapshot_date"}
+  )
+)
+@Getter @Setter
+public class ProjectKpiSnapshot {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @ManyToOne(optional = false)
+  @JoinColumn(name = "realisation_id")
+  private Realisation realisation;
+
+  @Column(nullable = false)
+  private LocalDate snapshotDate;
+
+  private int progressPercent;
+
+  @Column(precision = 10, scale = 2)
+  private BigDecimal plannedDays;
+
+  @Column(precision = 10, scale = 2)
+  private BigDecimal consumedDays;
+
+  @Column(precision = 10, scale = 2)
+  private BigDecimal varianceDays;
+
+  @Enumerated(EnumType.STRING)
+  private ProjectHealth health;
+}
+
+_____
+
+@Entity
+@Table(name = "issue")
+@Getter @Setter
+public class Issue {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  /* ========================
+     CONTENU METIER
+     ======================== */
+
+  @Column(nullable = false, length = 200)
+  private String titre;
+
+  @Column(columnDefinition = "text")
+  private String description;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false)
+  private IssueType type; // INCIDENT, BUG, EVOLUTION
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false)
+  private IssueStatus status = IssueStatus.OPEN;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false)
+  private IssuePriority priority = IssuePriority.MEDIUM;
+
+  /* ========================
+     LIENS STRUCTURELS
+     ======================== */
+
+  @ManyToOne(optional = false)
+  @JoinColumn(name = "realisation_id")
+  private Realisation realisation;
+
+  @ManyToOne
+  @JoinColumn(name = "phase_id")
+  private Phase phase; // nullable
+
+  /* ========================
+     ACTEURS
+     ======================== */
+
+  @ManyToOne(optional = false)
+  @JoinColumn(name = "created_by")
+  private AppUser createdBy; // métier
+
+  @ManyToOne
+  @JoinColumn(name = "assigned_to")
+  private AppUser assignedTo; // IT / PM
+
+  /* ========================
+     DATES
+     ======================== */
+
+  @Column(nullable = false)
+  private LocalDate createdDate = LocalDate.now();
+
+  private LocalDate resolvedDate;
+  private LocalDate closedDate;
+}
+
+___
+
+public enum IssueType {
+  INCIDENT,
+  BUG,
+  EVOLUTION
+}
+
+public enum IssueStatus {
+  OPEN,
+  IN_PROGRESS,
+  RESOLVED,
+  CLOSED,
+  REJECTED
+}
+
+public enum IssuePriority {
+  LOW,
+  MEDIUM,
+  HIGH,
+  CRITICAL
+}
+
+____
+
+SQL script
+
+create table issue (
+  id bigserial primary key,
+  titre varchar(200) not null,
+  description text,
+  type varchar(30) not null,
+  status varchar(30) not null,
+  priority varchar(30) not null,
+
+  realisation_id bigint not null references realisation(id) on delete cascade,
+  phase_id bigint references phase(id) on delete set null,
+
+  created_by bigint not null references app_user(id),
+  assigned_to bigint references app_user(id),
+
+  created_date date not null,
+  resolved_date date,
+  closed_date date
+);
+
+create index idx_issue_realisation on issue(realisation_id);
+create index idx_issue_phase on issue(phase_id);
+create index idx_issue_status on issue(status);
+create index idx_issue_type on issue(type);
+create index idx_issue_priority on issue(priority);
+
+--------- =========================================================
+-- Cockpit Projets & Ressources (MVP) + Issues
+-- PostgreSQL - Script global
+-- =========================================================
+
+-- (Optionnel) Schéma dédié
+-- create schema if not exists cockpit;
+-- set search_path to cockpit;
+
+-- =========================================================
+-- 1) Référentiels : stream / domaine / users
+-- =========================================================
+create table if not exists stream (
+  id bigserial primary key,
+  nom varchar(150) not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists domaine (
+  id bigserial primary key,
+  nom varchar(150) not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists app_user (
+  id bigserial primary key,
+  username varchar(120) not null unique,
+  nom varchar(120),
+  prenom varchar(120),
+  email varchar(180),
+  fonction varchar(180),
+  is_enabled boolean not null default true,
+  stream_id bigint references stream(id),
+  domaine_id bigint references domaine(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_user_stream on app_user(stream_id);
+create index if not exists idx_user_domaine on app_user(domaine_id);
+
+-- =========================================================
+-- 2) Projets : realisation (projet) / phase
+-- =========================================================
+-- etat: NOT_STARTED, IN_PROGRESS, ON_HOLD, DONE, BLOCKED
+-- health: GREEN, AMBER, RED
+create table if not exists realisation (
+  id bigserial primary key,
+  nom varchar(200) not null,
+  description text,
+  etat varchar(30) not null default 'NOT_STARTED',
+  health varchar(10) not null default 'GREEN',
+  date_debut date,
+  date_fin_prevue date,
+  date_fin_reelle date,
+  stream_id bigint references stream(id),
+  porteur_id bigint references app_user(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_realisation_stream on realisation(stream_id);
+create index if not exists idx_realisation_porteur on realisation(porteur_id);
+create index if not exists idx_realisation_etat on realisation(etat);
+create index if not exists idx_realisation_health on realisation(health);
+
+create table if not exists phase (
+  id bigserial primary key,
+  realisation_id bigint not null references realisation(id) on delete cascade,
+  nom varchar(200) not null,
+  etat varchar(30) not null default 'NOT_STARTED',
+  progress_percent int not null default 0 check (progress_percent between 0 and 100),
+  date_debut date,
+  date_fin_prevue date,
+  date_fin_reelle date,
+  sequence_order int not null default 1,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_phase_realisation on phase(realisation_id);
+create index if not exists idx_phase_order on phase(realisation_id, sequence_order);
+
+-- =========================================================
+-- 3) Ressources & charge : allocation / capacity / time_entry
+-- =========================================================
+create table if not exists allocation (
+  id bigserial primary key,
+  user_id bigint not null references app_user(id) on delete cascade,
+  realisation_id bigint not null references realisation(id) on delete cascade,
+  phase_id bigint references phase(id) on delete set null,
+  role varchar(80),
+  allocation_percent int not null default 100 check (allocation_percent between 0 and 100),
+  planned_days numeric(10,2) not null default 0 check (planned_days >= 0),
+  start_date date,
+  end_date date,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_alloc_user on allocation(user_id);
+create index if not exists idx_alloc_realisation on allocation(realisation_id);
+create index if not exists idx_alloc_phase on allocation(phase_id);
+
+-- Unicité (user + projet + phase). Pour phase_id null, on gère via index partiel.
+create unique index if not exists ux_alloc_user_proj_phase
+  on allocation(user_id, realisation_id, phase_id)
+  where phase_id is not null;
+
+create unique index if not exists ux_alloc_user_proj_no_phase
+  on allocation(user_id, realisation_id)
+  where phase_id is null;
+
+create table if not exists capacity (
+  id bigserial primary key,
+  user_id bigint not null references app_user(id) on delete cascade,
+  period_month date not null, -- ex: 2026-01-01
+  available_days numeric(10,2) not null default 0 check (available_days >= 0),
+  comment varchar(200),
+  created_at timestamptz not null default now(),
+  unique (user_id, period_month)
+);
+
+create index if not exists idx_capacity_month on capacity(period_month);
+
+create table if not exists time_entry (
+  id bigserial primary key,
+  user_id bigint not null references app_user(id) on delete cascade,
+  realisation_id bigint not null references realisation(id) on delete cascade,
+  phase_id bigint references phase(id) on delete set null,
+  work_date date not null,
+  days numeric(10,2) not null check (days >= 0),
+  comment text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_te_user_date on time_entry(user_id, work_date);
+create index if not exists idx_te_realisation_date on time_entry(realisation_id, work_date);
+create index if not exists idx_te_phase_date on time_entry(phase_id, work_date);
+
+-- =========================================================
+-- 4) KPI snapshot (cockpit)
+-- =========================================================
+create table if not exists project_kpi_snapshot (
+  id bigserial primary key,
+  realisation_id bigint not null references realisation(id) on delete cascade,
+  snapshot_date date not null,
+  progress_percent int not null default 0 check (progress_percent between 0 and 100),
+  planned_days numeric(10,2) not null default 0,
+  consumed_days numeric(10,2) not null default 0,
+  variance_days numeric(10,2) not null default 0,
+  health varchar(10) not null default 'GREEN',
+  created_at timestamptz not null default now(),
+  unique (realisation_id, snapshot_date)
+);
+
+create index if not exists idx_kpi_date on project_kpi_snapshot(snapshot_date);
+
+-- =========================================================
+-- 5) Issues (incidents / bugs / évolutions) - saisie métier
+-- =========================================================
+-- type: INCIDENT, BUG, EVOLUTION
+-- status: OPEN, IN_PROGRESS, RESOLVED, CLOSED, REJECTED
+-- priority: LOW, MEDIUM, HIGH, CRITICAL
+create table if not exists issue (
+  id bigserial primary key,
+  titre varchar(200) not null,
+  description text,
+  type varchar(30) not null,
+  status varchar(30) not null default 'OPEN',
+  priority varchar(30) not null default 'MEDIUM',
+
+  realisation_id bigint not null references realisation(id) on delete cascade,
+  phase_id bigint references phase(id) on delete set null,
+
+  created_by bigint not null references app_user(id),
+  assigned_to bigint references app_user(id),
+
+  created_date date not null default current_date,
+  resolved_date date,
+  closed_date date
+);
+
+create index if not exists idx_issue_realisation on issue(realisation_id);
+create index if not exists idx_issue_phase on issue(phase_id);
+create index if not exists idx_issue_status on issue(status);
+create index if not exists idx_issue_type on issue(type);
+create index if not exists idx_issue_priority on issue(priority);
+
+-- =========================================================
+-- 6) (Optionnel) Vues utiles cockpit
+-- =========================================================
+-- Vue: planned vs consumed par projet
+create or replace view v_project_load as
+select
+  r.id as realisation_id,
+  r.nom as realisation_nom,
+  coalesce(sum(a.planned_days), 0) as planned_days,
+  coalesce((select sum(te.days) from time_entry te where te.realisation_id = r.id), 0) as consumed_days,
+  coalesce((select sum(te.days) from time_entry te where te.realisation_id = r.id), 0)
+    - coalesce(sum(a.planned_days), 0) as variance_days
+from realisation r
+left join allocation a on a.realisation_id = r.id
+group by r.id, r.nom;
+
+-- Vue: issues ouvertes par projet
+create or replace view v_project_open_issues as
+select
+  r.id as realisation_id,
+  r.nom as realisation_nom,
+  count(*) filter (where i.status in ('OPEN','IN_PROGRESS')) as open_count,
+  count(*) filter (where i.priority = 'CRITICAL' and i.status in ('OPEN','IN_PROGRESS')) as critical_open_count
+from realisation r
+left join issue i on i.realisation_id = r.id
+group by r.id, r.nom;
+
+-- =========================================================
+-- Fin script
+-- =========================================================
