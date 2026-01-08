@@ -1,0 +1,229 @@
+@startuml
+title Cockpit - Modèle de données (ERD)
+
+hide circle
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+
+' ======== ENTITÉS ========
+entity TEAM {
+  * id : UUID
+  --
+  name : varchar
+  department : varchar
+}
+
+entity USER {
+  * id : UUID
+  --
+  username : varchar
+  full_name : varchar
+  email : varchar
+  active : boolean
+  role : varchar  ' ADMIN, MANAGER, PM, MEMBER, BUSINESS
+  team_id : UUID
+}
+
+entity PROJECT {
+  * id : UUID
+  --
+  code : varchar
+  name : varchar
+  description : text
+  sponsor : varchar
+  project_manager_id : UUID
+  start_date : date
+  end_date_planned : date
+  end_date_actual : date
+  status : varchar   ' DRAFT, IN_PROGRESS, ON_HOLD, DONE, CANCELED
+  health : varchar   ' GREEN, AMBER, RED
+  priority : varchar ' LOW, MEDIUM, HIGH
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity PROJECT_MEMBER {
+  * project_id : UUID
+  * user_id : UUID
+  --
+  role_on_project : varchar
+  since_date : date
+  until_date : date
+}
+
+entity PHASE {
+  * id : UUID
+  --
+  project_id : UUID
+  name : varchar
+  sequence_order : int
+  start_date : date
+  end_date_planned : date
+  end_date_actual : date
+  status : varchar  ' NOT_STARTED, IN_PROGRESS, DONE, BLOCKED
+  progress_percent : int
+  owner_id : UUID
+}
+
+entity MILESTONE {
+  * id : UUID
+  --
+  project_id : UUID
+  phase_id : UUID  ' nullable
+  name : varchar
+  due_date : date
+  done_date : date
+  status : varchar ' PLANNED, DONE, LATE
+}
+
+entity WORK_ITEM {
+  * id : UUID
+  --
+  project_id : UUID
+  phase_id : UUID
+  title : varchar
+  description : text
+  type : varchar    ' FEATURE, BUG, TASK, BUSINESS_TOPIC
+  status : varchar  ' TODO, IN_PROGRESS, DONE, BLOCKED
+  priority : varchar
+  assignee_id : UUID ' nullable
+  start_date : date
+  due_date : date
+  progress_percent : int
+  external_ref : varchar ' ex Jira
+}
+
+entity RISK {
+  * id : UUID
+  --
+  project_id : UUID
+  phase_id : UUID  ' nullable
+  title : varchar
+  description : text
+  severity : varchar ' LOW, MEDIUM, HIGH, CRITICAL
+  status : varchar   ' OPEN, MITIGATED, CLOSED
+  owner_id : UUID
+}
+
+entity ALLOCATION {
+  * id : UUID
+  --
+  project_id : UUID
+  phase_id : UUID   ' nullable
+  user_id : UUID
+  role_on_phase : varchar
+  start_date : date
+  end_date : date
+  allocation_percent : int
+  planned_days : decimal
+  notes : text
+}
+
+entity CAPACITY {
+  * id : UUID
+  --
+  user_id : UUID
+  period_month : date ' ex 2026-01-01
+  available_days : decimal
+  comment : varchar
+}
+
+entity TIMESHEET {
+  * id : UUID
+  --
+  user_id : UUID
+  period_start : date
+  period_end : date
+  status : varchar ' DRAFT, SUBMITTED, APPROVED, REJECTED
+  submitted_at : timestamp
+  approved_by : UUID
+  approved_at : timestamp
+}
+
+entity TIME_ENTRY {
+  * id : UUID
+  --
+  timesheet_id : UUID
+  date : date
+  project_id : UUID
+  phase_id : UUID
+  work_item_id : UUID ' nullable
+  days : decimal
+  comment : text
+}
+
+entity PROJECT_KPI_SNAPSHOT {
+  * id : UUID
+  --
+  project_id : UUID
+  snapshot_date : date
+  progress_percent : int
+  planned_days_total : decimal
+  consumed_days_total : decimal
+  variance_days : decimal
+  health : varchar ' GREEN, AMBER, RED
+  risks_open_count : int
+  updated_at : timestamp
+}
+
+entity AUDIT_LOG {
+  * id : UUID
+  --
+  actor_user_id : UUID
+  entity_type : varchar
+  entity_id : UUID
+  action : varchar ' CREATE, UPDATE, DELETE
+  changed_fields : json
+  created_at : timestamp
+}
+
+entity NOTIFICATION {
+  * id : UUID
+  --
+  user_id : UUID
+  type : varchar ' ALERT, INFO
+  title : varchar
+  message : text
+  read_at : timestamp
+  created_at : timestamp
+}
+
+' ======== RELATIONS ========
+TEAM ||--o{ USER : has
+USER ||--o{ PROJECT : manages
+
+PROJECT ||--o{ PROJECT_MEMBER : includes
+USER ||--o{ PROJECT_MEMBER : participates
+
+PROJECT ||--o{ PHASE : has
+USER ||--o{ PHASE : owns
+
+PROJECT ||--o{ MILESTONE : has
+PHASE  ||--o{ MILESTONE : has
+
+PROJECT ||--o{ WORK_ITEM : contains
+PHASE  ||--o{ WORK_ITEM : groups
+USER   ||--o{ WORK_ITEM : assigned
+
+PROJECT ||--o{ RISK : has
+PHASE  ||--o{ RISK : has
+USER   ||--o{ RISK : owns
+
+PROJECT ||--o{ ALLOCATION : plans
+PHASE  ||--o{ ALLOCATION : plans
+USER   ||--o{ ALLOCATION : allocated
+
+USER ||--o{ CAPACITY : capacity
+
+USER ||--o{ TIMESHEET : submits
+TIMESHEET ||--o{ TIME_ENTRY : contains
+PROJECT ||--o{ TIME_ENTRY : charged_to
+PHASE ||--o{ TIME_ENTRY : charged_to
+WORK_ITEM ||--o{ TIME_ENTRY : charged_to
+
+PROJECT ||--o{ PROJECT_KPI_SNAPSHOT : snapshots
+
+USER ||--o{ AUDIT_LOG : acts
+USER ||--o{ NOTIFICATION : receives
+
+@enduml
