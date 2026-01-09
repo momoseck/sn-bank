@@ -821,3 +821,64 @@ group by r.id, r.nom;
 -- =========================================================
 -- Fin script
 -- =========================================================
+
+@startuml
+title Gestion documentaire - Projets (MVP)
+
+hide circle
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+
+entity realisation {
+  * id : bigint
+  --
+  nom : varchar
+}
+
+entity folder {
+  * id : bigint
+  --
+  name : varchar
+  path : varchar
+  realisation_id : bigint
+  parent_id : bigint
+  created_at : timestamp
+}
+
+entity document {
+  * id : bigint
+  --
+  name : varchar
+  type : varchar         ' ARCHI, DOC, SPEC, OTHER
+  description : text
+  folder_id : bigint
+  created_at : timestamp
+}
+
+entity document_version {
+  * id : bigint
+  --
+  document_id : bigint
+  version : int
+  file_name : varchar
+  content_type : varchar
+  file_size : bigint
+  storage_path : varchar
+  uploaded_by : bigint
+  uploaded_at : timestamp
+}
+
+entity app_user {
+  * id : bigint
+  --
+  username : varchar
+}
+
+' ========== RELATIONS ==========
+realisation ||--o{ folder : owns
+folder ||--o{ folder : parent
+folder ||--o{ document : contains
+document ||--o{ document_version : versions
+app_user ||--o{ document_version : uploads
+
+@enduml
