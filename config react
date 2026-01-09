@@ -1,0 +1,253 @@
+npm i keycloak-js axios
+
+----
+auth/keycloak.ts
+import Keycloak from "keycloak-js";
+
+const keycloak = new Keycloak({
+  url: "http://localhost:8081",      // base URL Keycloak
+  realm: "sdm-realm",                // ton realm
+  clientId: "sdm-portal"             // client SPA
+});
+
+export default keycloak;
+-----
+
+auth/provider.ts
+
+import React, { createContext, useEffect, useMemo, useState } from "react";
+import keycloak from "./keycloak";
+
+type AuthContextType = {
+  isReady: boolean;
+  isAuthenticated: boolean;
+  token?: string;
+  username?: string;
+  roles: string[];
+  login: () => void;
+  logout: () => void;
+  refreshToken: () => Promise<void>;
+};
+
+export const AuthContext = createContext<AuthContextType>({
+  isReady: false,
+  isAuthenticated: false,
+  roles: [],
+  login: () => {},
+  logout: () => {},
+  refreshToken: async () => {}
+});
+
+function extractRealmRoles(tokenParsed: any): string[] {
+  // Keycloak met les roles dans realm_access.roles
+  const roles = tokenParsed?.realm_access?.roles ?? [];
+  return Array.isArray(roles) ? roles : [];
+}
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isReady, setReady] = useState(false);
+  const [isAuthenticated, setAuth] = useState(false);
+  const [token, setToken] = useState<string | undefined>(undefined);
+  const [username, setUsername] = useState<string | undefined>(undefined);
+  const [roles, setRoles] = useState<string[]>([]);
+
+  useEffect(() => {
+    keycloak
+      .init({
+        onLoad: "check-sso",        // "login-required" si tu veux forcer login direct
+        pkceMethod: "S256",
+        checkLoginIframe: false
+      })
+      .then((authenticated) => {
+        setAuth(authenticated);
+        setToken(keycloak.token);
+        setUsername((keycloak.tokenParsed as any)?.preferred_username);
+        setRoles(extractRealmRoles(keycloak.tokenParsed));
+      })
+      .finally(() => setReady(true));
+
+    // refresh auto toutes les 30s si besoin
+    const interval = window.setInterval(async () => {
+      if (!keycloak.authenticated) return;
+      try {
+        const refreshed = await keycloak.updateToken(60); // refresh si expire < 60s
+        if (refreshed) {
+          setToken(keycloak.token);
+          setRoles(extractRealmRoles(keycloak.tokenParsed));
+        }
+      } catch {
+        // si refresh échoue => logout ou relogin
+        // keycloak.login();
+      }
+    }, 30_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const value = useMemo<AuthContextType>(() => ({
+    isReady,
+    isAuthenticated,
+    token,
+    username,
+    roles,
+    login: () => keycloak.login(),
+    logout: () => keycloak.logout({ redirectUri: window.location.origin }),
+    refreshToken: async () => {
+      if (!keycloak.authenticated) return;
+      await keycloak.updateToken(60);
+      setToken(keycloak.token);
+      setRoles(extractRealmRoles(keycloak.tokenParsed));
+    }
+  }), [isReady, isAuthenticated, token, username, roles]);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+------
+
+api/http.ts
+
+import axios from "axios";
+import keycloak from "../auth/keycloak";
+
+export const http = axios.create({
+  baseURL: "http://localhost:8080", // Spring Boot
+});
+
+http.interceptors.request.use(async (config) => {
+  // refresh si expire bientôt
+  if (keycloak.authenticated) {
+    try {
+      await keycloak.updateToken(60);
+    } catch {
+      // ignore
+    }
+    config.headers = config.headers ?? {};
+    config.headers.Authorization = `Bearer ${keycloak.token}`;
+  }
+  return config;
+});
+
+-----
+
+
+app.ts
+
+import { http } from "./http";
+
+export type AppItem = {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  pwaUrl: string;
+  iconUrl?: string;
+  active: boolean;
+  displayOrder: number;
+};
+
+export async function fetchMyApps(): Promise<AppItem[]> {
+  const res = await http.get<AppItem[]>("/api/me/apps");
+  return res.data;
+}
+
+____
+
+page 
+
+import React, { useContext, useEffect, useState } from "react";
+import { AuthContext } from "../auth/AuthProvider";
+import { AppItem, fetchMyApps } from "../api/apps";
+
+export default function Dashboard() {
+  const { isReady, isAuthenticated, login, logout, username } = useContext(AuthContext);
+  const [apps, setApps] = useState<AppItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    setLoading(true);
+    fetchMyApps()
+      .then(setApps)
+      .finally(() => setLoading(false));
+  }, [isAuthenticated]);
+
+  if (!isReady) return <div style={{ padding: 16 }}>Chargement...</div>;
+
+  if (!isAuthenticated) {
+    return (
+      <div style={{ padding: 16 }}>
+        <h2>SDM Portal</h2>
+        <p>Vous devez vous connecter.</p>
+        <button onClick={login}>Se connecter</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h2>Bienvenue {username}</h2>
+        <button onClick={logout}>Déconnexion</button>
+      </div>
+
+      <h3>Applications autorisées</h3>
+
+      {loading && <p>Chargement des apps…</p>}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+        {apps.map((app) => (
+          <div
+            key={app.id}
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: 12,
+              padding: 12,
+              cursor: "pointer"
+            }}
+            onClick={() => window.open(app.pwaUrl, "_blank", "noopener,noreferrer")}
+            title="Ouvrir l'application"
+          >
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {app.iconUrl ? (
+                <img src={app.iconUrl} alt="" width={40} height={40} />
+              ) : (
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: "#eee" }} />
+              )}
+              <div>
+                <div style={{ fontWeight: 700 }}>{app.name}</div>
+                <div style={{ fontSize: 12, color: "#666" }}>{app.code}</div>
+              </div>
+            </div>
+            {app.description && <p style={{ marginTop: 10, color: "#444" }}>{app.description}</p>}
+            <div style={{ fontSize: 12, color: "#0070f3" }}>Ouvrir →</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+------
+
+
+index 
+
+
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { AuthProvider } from "./auth/AuthProvider";
+import Dashboard from "./pages/Dashboard";
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <AuthProvider>
+      <Dashboard />
+    </AuthProvider>
+  </React.StrictMode>
+);
+
+-----
+
+
+
