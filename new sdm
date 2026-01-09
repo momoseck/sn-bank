@@ -1,0 +1,350 @@
+package com.sdm.portal.domain;
+
+import jakarta.persistence.*;
+import java.util.*;
+
+@Entity
+@Table(name = "sdm_user")
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    // identifiant venant du SSO (sub du token OIDC), unique
+    @Column(name = "external_id", nullable = false, unique = true, length = 120)
+    private String externalId;
+
+    @Column(name = "username", nullable = false, length = 80)
+    private String username;
+
+    @Column(name = "display_name", length = 120)
+    private String displayName;
+
+    @Column(name = "email", length = 160)
+    private String email;
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+        name = "sdm_user_role",
+        joinColumns = @JoinColumn(name = "user_id"),
+        inverseJoinColumns = @JoinColumn(name = "role_id")
+    )
+    private Set<Role> roles = new HashSet<>();
+
+    // getters/setters/constructeurs
+}
+
+package com.sdm.portal.domain;
+
+import jakarta.persistence.*;
+import java.util.*;
+
+@Entity
+@Table(name = "sdm_role")
+public class Role {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(name = "code", nullable = false, unique = true, length = 80)
+    private String code; // ex: ROLE_MANAGER
+
+    @Column(name = "label", length = 120)
+    private String label; // ex: Manager
+
+    @ManyToMany(mappedBy = "roles")
+    private Set<User> users = new HashSet<>();
+
+    @ManyToMany(mappedBy = "allowedRoles")
+    private Set<Application> applications = new HashSet<>();
+
+    // getters/setters
+}
+
+
+package com.sdm.portal.domain;
+
+import jakarta.persistence.*;
+import java.util.*;
+
+@Entity
+@Table(name = "sdm_application")
+public class Application {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(name = "code", nullable = false, unique = true, length = 60)
+    private String code; // APP1
+
+    @Column(name = "name", nullable = false, length = 120)
+    private String name; // App 1 - Gestion Projets
+
+    @Column(name = "description", length = 500)
+    private String description;
+
+    @Column(name = "pwa_url", nullable = false, length = 400)
+    private String pwaUrl; // https://domaine.tld/app1/
+
+    @Column(name = "icon_url", length = 400)
+    private String iconUrl; // optionnel
+
+    @Column(name = "is_active", nullable = false)
+    private boolean active = true;
+
+    @Column(name = "display_order", nullable = false)
+    private int displayOrder = 0;
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+        name = "sdm_application_role",
+        joinColumns = @JoinColumn(name = "application_id"),
+        inverseJoinColumns = @JoinColumn(name = "role_id")
+    )
+    private Set<Role> allowedRoles = new HashSet<>();
+
+    // getters/setters
+}
+
+@startuml
+hide circle
+skinparam classAttributeIconSize 0
+
+class User {
+  +UUID id
+  +String externalId
+  +String username
+  +String displayName
+  +String email
+}
+
+class Role {
+  +UUID id
+  +String code
+  +String label
+}
+
+class Application {
+  +UUID id
+  +String code
+  +String name
+  +String description
+  +String pwaUrl
+  +String iconUrl
+  +boolean active
+  +int displayOrder
+}
+
+' Associations
+User "0..*" -- "0..*" Role : has >
+Application "0..*" -- "0..*" Role : allowed >
+
+' Join tables (optionnel pour lecture)
+class UserRole <<join>> {
+  +UUID user_id
+  +UUID role_id
+}
+
+class ApplicationRole <<join>> {
+  +UUID application_id
+  +UUID role_id
+}
+
+UserRole .. User
+UserRole .. Role
+ApplicationRole .. Application
+ApplicationRole .. Role
+
+@enduml
+
+@startuml
+skinparam componentStyle rectangle
+
+actor "Utilisateur" as U
+
+component "SDM Portal\n(React)" as SDM_FE
+component "SDM API\n(Spring Boot)" as SDM_BE
+component "IdP/SSO\n(Keycloak/OIDC)" as IDP
+
+component "App1\n(PWA React)" as APP1
+component "App2\n(PWA React)" as APP2
+component "App3\n(PWA React)" as APP3
+
+database "PostgreSQL\n(roles/apps)" as DB
+
+U --> SDM_FE : se connecte
+SDM_FE --> IDP : login (OIDC)
+IDP --> SDM_FE : token (JWT)
+
+SDM_FE --> SDM_BE : GET /api/me/apps (JWT)
+SDM_BE --> DB : récupère apps autorisées
+DB --> SDM_BE
+SDM_BE --> SDM_FE : liste apps (url, icon, name)
+
+SDM_FE --> APP1 : open pwaUrl (si autorisé)
+SDM_FE --> APP2 : open pwaUrl (si autorisé)
+SDM_FE --> APP3 : open pwaUrl (si autorisé)
+
+@enduml
+
+__________
+
+server:
+  port: 8080
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8081/realms/sdm-realm
+          jwk-set-uri: http://localhost:8081/realms/sdm-realm/protocol/openid-connect/certs
+
+logging:
+  level:
+    org.springframework.security: INFO
+
+_______
+
+
+package com.sdm.portal.config.security;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+
+@Configuration
+@EnableMethodSecurity
+public class SecurityConfig {
+
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
+        http
+            .csrf(csrf -> csrf.disable())
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/api/**").authenticated()
+                .anyRequest().denyAll()
+            )
+            .oauth2ResourceServer(oauth2 ->
+                oauth2.jwt(jwt ->
+                    jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())
+                )
+            );
+
+        return http.build();
+    }
+
+    @Bean
+    JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(new KeycloakRoleConverter());
+        return converter;
+    }
+}
+
+________
+
+package com.sdm.portal.config.security;
+
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.jwt.Jwt;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@SuppressWarnings("unchecked")
+public class KeycloakRoleConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
+
+    @Override
+    public Collection<GrantedAuthority> convert(Jwt jwt) {
+
+        Map<String, Object> realmAccess = jwt.getClaim("realm_access");
+
+        if (realmAccess == null || realmAccess.get("roles") == null) {
+            return List.of();
+        }
+
+        List<String> roles = (List<String>) realmAccess.get("roles");
+
+        return roles.stream()
+            .map(role -> "ROLE_" + role.toUpperCase())
+            .map(SimpleGrantedAuthority::new)
+            .collect(Collectors.toSet());
+    }
+}
+
+-----------
+
+@GetMapping("/api/me")
+public Map<String, Object> me(@AuthenticationPrincipal Jwt jwt) {
+    return Map.of(
+        "subject", jwt.getSubject(),
+        "username", jwt.getClaimAsString("preferred_username"),
+        "email", jwt.getClaimAsString("email"),
+        "roles", jwt.getClaim("realm_access")
+    );
+}
+
+------
+
+public interface ApplicationRepository extends JpaRepository<Application, UUID> {
+
+    @Query("""
+        select distinct a
+        from Application a
+        join a.allowedRoles r
+        where r.code in :roles
+        and a.active = true
+        order by a.displayOrder
+    """)
+    List<Application> findAllowedApps(Set<String> roles);
+}
+
+-------
+
+
+@RestController
+@RequestMapping("/api/me")
+public class MeController {
+
+    private final ApplicationRepository applicationRepository;
+
+    public MeController(ApplicationRepository applicationRepository) {
+        this.applicationRepository = applicationRepository;
+    }
+
+    @GetMapping("/apps")
+    public List<ApplicationDto> myApps(@AuthenticationPrincipal Jwt jwt) {
+
+        List<String> roles = extractRoles(jwt);
+
+        return applicationRepository.findAllowedApps(Set.copyOf(roles))
+            .stream()
+            .map(ApplicationDto::from)
+            .toList();
+    }
+
+    private List<String> extractRoles(Jwt jwt) {
+        Map<String, Object> realmAccess = jwt.getClaim("realm_access");
+        if (realmAccess == null) return List.of();
+        return (List<String>) realmAccess.getOrDefault("roles", List.of());
+    }
+}
+
+----
+
+
+
+
+
+
